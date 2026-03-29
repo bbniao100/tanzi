@@ -283,22 +283,24 @@ $("genBtn").onclick = function() {
     btn.textContent = "搜集新闻...";
     C(); P(10);
     $("top").textContent = "正在从官方RSS源抓取今日新闻...";
-    $("body").innerHTML = '<div class="loading"><div class="spinner"></div><p>正在从官方RSS源实时获取新闻（最长等待20秒）...</p></div>';
+    $("body").innerHTML = '<div class="loading"><div class="spinner"></div><p>正在从官方RSS源实时获取新闻...</p></div>';
 
     try { localStorage.setItem("tk", key); localStorage.setItem("tb", base); } catch(e){}
 
-    // 带超时的fetch（最长等20秒）
-    var timeoutMs = 20000;
+    // 带20秒超时的fetch
+    var newsData = null;
     var fetcher = fetch("/api/news");
     var timer = new Promise(function(_, rej) {
-        setTimeout(function() { rej(new Error("新闻获取超时（20秒），服务器可能无法访问国内网站，请稍后重试")); }, timeoutMs);
+        setTimeout(function() { rej(new Error("新闻获取超时（20秒），请稍后重试")); }, 20000);
     });
 
-    Promise.race([fetcher, timer]).then(function(r) {
-        if (!r || !r.ok) throw new Error("服务器响应异常，请确认服务器已启动");
-        P(50); return r.json();
+    Promise.race([fetcher, timer]).then(function(resp) {
+        if (!resp || !resp.ok) throw new Error("服务器响应异常，请确认服务器已启动");
+        P(50);
+        return resp.json();
     }).then(function(news) {
-        if (!news || news.length === 0) throw new Error("新闻获取为0，服务器可能无法访问国内网站，请稍后重试");
+        newsData = news;
+        if (!news || news.length === 0) throw new Error("新闻获取为0，请稍后重试");
         btn.textContent = "AI 整理...";
         $("top").textContent = "已获取 " + news.length + " 条，AI 整理中...";
         P(60);
@@ -313,20 +315,21 @@ $("genBtn").onclick = function() {
             method: "POST",
             headers: {"Authorization": "Bearer " + key, "Content-Type": "application/json"},
             body: JSON.stringify({model:model, messages:[{role:"user",content:txt}], temperature:0.2, max_tokens:2000})
-        }).then(function(r) { return r.json().catch(function(){ throw new Error("AI返回无效"); }); });
+        }).then(function(resp2) { return resp2.json(); });
     }).then(function(data) {
         if (!data.choices) throw new Error("AI返回格式异常，请尝试切换其他模型");
         var txt = data.choices[0].message.content.trim().replace(/^```json\s*/i,"").replace(/```\s*$/i,"").trim();
         var r = JSON.parse(txt);
         P(100);
-        showResult(r, 0);
-        btn.textContent = "🔄 重新生成";
+        showResult(r, (newsData ? newsData.length : 0));
+        btn.textContent = "重新生成";
     }).catch(function(err) {
         C(); P(0);
         $("top").textContent = "出错了";
-        $("body").innerHTML = '<div class="eb">❌ ' + esc(err.message||String(err)) + '<br><br><span class="btn" id="rbtn">重新生成</span></div>';
-        $("rbtn").onclick = $("genBtn").onclick;
-        S("❌ " + (err.message||String(err)), "err");
+        var errMsg = err.message || String(err);
+        $("body").innerHTML = '<div class="eb">出错：' + esc(errMsg) + '<br><br><span class="btn" id="rbtn">重新生成</span></div>';
+        document.getElementById("rbtn").onclick = function() { $("genBtn").onclick(); };
+        S("❌ " + errMsg, "err");
     }).finally(function() {
         busy = false;
         btn.disabled = false;
@@ -405,6 +408,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-type", "text/html; charset=utf-8")
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode("utf-8"))
+
+        elif self.path == "/test":
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(("服务器正常运行中！时间：" + datetime.now().strftime("%Y-%m-%d %H:%M:%S")).encode("utf-8"))
 
         elif self.path == "/api/news":
             self.send_response(200)
