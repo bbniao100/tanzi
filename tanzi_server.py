@@ -170,9 +170,9 @@ select{flex:0 0 auto;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:8
 <div class="r">
 <input type="text" id="apiBase" placeholder="https://api.siliconflow.cn" style="max-width:250px">
 <select id="modelSelect">
-<option value="Qwen/Qwen2.5-7B-Instruct">Qwen2.5-7B（推荐）</option>
+<option value="deepseek-ai/DeepSeek-R1">DeepSeek R1（推荐）</option>
 <option value="deepseek-ai/DeepSeek-V2.5">DeepSeek V2.5</option>
-<option value="THUDM/glm-4-9b-chat">GLM-4</option>
+<option value="Qwen/Qwen2.5-7B-Instruct">Qwen2.5-7B</option>
 </select>
 </div>
 <div class="slist">📡 新闻来源（实时RSS）：🌐 中新网（国内/国际/社会/财经/时政） · 🌐 凤凰网</div>
@@ -294,8 +294,20 @@ function doGenerate() {
         }).then(function(r) { return r.json(); });
     }).then(function(data) {
         if (!data.choices) throw new Error('AI返回格式异常，请尝试切换其他模型');
-        var txt = data.choices[0].message.content.trim().replace(/^```json\s*/i,'').replace(/```\s*$/i,'').trim();
-        var r = JSON.parse(txt);
+        var raw = data.choices[0].message.content || '';
+        // DeepSeek R1 可能在思考，提取JSON部分
+        var txt = raw.trim();
+        // 去掉 <think>...</think> 标签
+        txt = txt.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        // 去掉 markdown 代码块标记
+        txt = txt.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+        // 找第一个 { 和最后一个 }
+        var l = txt.indexOf('{');
+        var r2 = txt.lastIndexOf('}');
+        if (l !== -1 && r2 !== -1 && r2 > l) txt = txt.substring(l, r2 + 1);
+        var r;
+        try { r = JSON.parse(txt); }
+        catch(e) { throw new Error('AI返回内容无法解析为JSON，请重试一次（模型首次响应可能不完整）'); }
         setProgress(100);
         renderResult(r, newsCache ? newsCache.length : 0);
         btn.textContent = '重新生成';
